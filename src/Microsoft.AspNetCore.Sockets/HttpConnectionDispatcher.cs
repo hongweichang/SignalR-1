@@ -2,17 +2,22 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipelines;
+using System.Security.Claims;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Sockets.Internal;
 using Microsoft.AspNetCore.Sockets.Transports;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
+using Microsoft.Extensions.Internal;
 
 namespace Microsoft.AspNetCore.Sockets
 {
@@ -31,6 +36,11 @@ namespace Microsoft.AspNetCore.Sockets
 
         public async Task ExecuteAsync<TEndPoint>(string path, HttpContext context) where TEndPoint : EndPoint
         {
+            if (!await AuthorizeAsync<TEndPoint>(context))
+            {
+                return;
+            }
+
             // Get the end point mapped to this http connection
             var endpoint = (EndPoint)context.RequestServices.GetRequiredService<TEndPoint>();
 
@@ -46,6 +56,58 @@ namespace Microsoft.AspNetCore.Sockets
             {
                 await ExecuteEndpointAsync(path, context, endpoint);
             }
+        }
+
+        private async Task<bool> AuthorizeAsync<TEndPoint>(HttpContext context) where TEndPoint : EndPoint
+        {
+            // TODO: Authorize attribute on EndPoint
+            var options = context.RequestServices.GetRequiredService<IOptions<EndPointOptions<TEndPoint>>>();
+            var policy = options.Value.Policy;
+            if (policy != null)
+            {
+                if (policy.AuthenticationSchemes != null && policy.AuthenticationSchemes.Count > 0)
+                {
+                    ClaimsPrincipal newPrincipal = null;
+                    foreach (var scheme in policy.AuthenticationSchemes)
+                    {
+                        var result = await context.Authentication.AuthenticateAsync(scheme);
+                        if (result != null)
+                        {
+                            newPrincipal = SecurityHelper.MergeUserPrincipal(newPrincipal, result);
+                        }
+                    }
+
+                    if (newPrincipal == null)
+                    {
+                        newPrincipal = new ClaimsPrincipal(new ClaimsIdentity());
+                    }
+
+                    context.User = newPrincipal;
+                }
+
+                var authService = context.RequestServices.GetRequiredService<IAuthorizationService>();
+                if (await authService.AuthorizeAsync(context.User, context, policy))
+                {
+                    return true;
+                }
+
+                // Challenge
+                if (policy.AuthenticationSchemes != null && policy.AuthenticationSchemes.Count > 0)
+                {
+                    foreach (var scheme in policy.AuthenticationSchemes)
+                    {
+                        await context.Authentication.ChallengeAsync(scheme);
+                    }
+                }
+                else
+                {
+                    await context.Authentication.ChallengeAsync();
+                }
+
+                return false;
+            }
+
+            return true;
         }
 
         private async Task ExecuteEndpointAsync(string path, HttpContext context, EndPoint endpoint)

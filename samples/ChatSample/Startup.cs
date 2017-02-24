@@ -1,13 +1,17 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using ChatSample.Data;
 using ChatSample.Hubs;
 using ChatSample.Models;
 using ChatSample.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,6 +19,18 @@ using Microsoft.Extensions.Logging;
 
 namespace ChatSample
 {
+    public class req : IAuthorizationRequirement
+    {
+    }
+    public class reqHandler : AuthorizationHandler<req>
+    {
+        protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, req requirement)
+        {
+            context.Succeed(requirement);
+            return Task.CompletedTask;
+        }
+    }
+
     public class Startup
     {
         public Startup(IHostingEnvironment env)
@@ -39,6 +55,7 @@ namespace ChatSample
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
+            services.AddTransient<IAuthorizationHandler, reqHandler>();
             // Add framework services.
             services.AddDbContext<ApplicationDbContext>(options =>
                 options.UseSqlServer(Configuration.GetConnectionString("DefaultConnection")));
@@ -54,8 +71,13 @@ namespace ChatSample
             services.AddTransient<ISmsSender, AuthMessageSender>();
 
             services.AddSignalR();
+            services.AddEndPoint<HubEndPoint<Chat>>(options =>
+            {
+                options.Policy = new AuthorizationPolicy(new List<IAuthorizationRequirement>() { new req() }, new List<string>() { "Cookie" });
+            });
 
             services.AddAuthentication();
+            services.AddAuthorization();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -79,7 +101,10 @@ namespace ChatSample
             app.UseIdentity();
 
             // Add external authentication middleware below. To configure them please see http://go.microsoft.com/fwlink/?LinkID=532715
-            //app.UseCookieAuthentication();
+            app.UseCookieAuthentication(new CookieAuthenticationOptions()
+            {
+                AuthenticationScheme = "Cookie"
+            });
 
             app.UseSignalR(routes =>
             {

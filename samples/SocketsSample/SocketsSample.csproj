@@ -23,7 +23,7 @@
       <SignalRClientTargetFolder>$(MSBuildProjectDirectory)/wwwroot/lib/signalr-client/</SignalRClientTargetFolder>
       <SignalRClientTargetPath>$(MSBuildProjectDirectory)/wwwroot/lib/signalr-client/signalr-client.js</SignalRClientTargetPath>
     </PropertyGroup>
-    <Copy Condition="Exists('$(SignalRClientDistPath)')" SourceFiles="$(SignalRClientDistPath)" DestinationFolder="$(SignalRClientTargetFolder)"/>
+    <Copy Condition="Exists('$(SignalRClientDistPath)')" SourceFiles="$(SignalRClientDistPath)" DestinationFolder="$(SignalRClientTargetFolder)" />
     <Exec Condition="!Exists('$(SignalRClientDistPath)')" Command="npm install" />
     <Exec Condition="!Exists('$(SignalRClientDistPath)')" Command="npm run gulp -- --gulpfile $(MSBuildProjectDirectory)/../../src/Microsoft.AspNetCore.SignalR.Client.TS/gulpfile.js bundle-client --bundleOutDir $(SignalRClientTargetFolder)" />
   </Target>

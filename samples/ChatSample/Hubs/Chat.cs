@@ -14,10 +14,10 @@ namespace ChatSample.Hubs
     {
         public override Task OnConnectedAsync()
         {
-            if (!Context.User.Identity.IsAuthenticated)
-            {
-                Context.Connection.Dispose();
-            }
+            //if (!Context.User.Identity.IsAuthenticated)
+            //{
+            //    Context.Connection.Dispose();
+            //}
 
             return Task.CompletedTask;
         }
