@@ -3,6 +3,7 @@
 
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -31,7 +32,7 @@ namespace Microsoft.AspNetCore.Sockets.Client
 
         public Task Running { get; private set; }
 
-        public LongPollingTransport(HttpClient httpClient) 
+        public LongPollingTransport(HttpClient httpClient)
             : this(httpClient, null)
         { }
 
@@ -94,12 +95,9 @@ namespace Microsoft.AspNetCore.Sockets.Client
                         var payload = await response.Content.ReadAsByteArrayAsync();
                         if (payload.Length > 0)
                         {
-                            var reader = new BytesReader(payload);
-                            var messageFormat = MessageParser.GetFormat(reader.Unread[0]);
-                            reader.Advance(1);
+                            var messages = ParsePayload(payload);
 
-                            _parser.Reset();
-                            while (_parser.TryParseMessage(ref reader, messageFormat, out var message))
+                            foreach (var message in messages)
                             {
                                 while (!_application.Output.TryWrite(message))
                                 {
@@ -109,17 +107,8 @@ namespace Microsoft.AspNetCore.Sockets.Client
                                     }
                                 }
                             }
-
-                            // Since we pre-read the whole payload, we know that when this fails we have read everything.
-                            // Once Pipelines natively support BytesReader, we could get into situations where the data for
-                            // a message just isn't available yet.
-
-                            // If there's still data, we hit an incomplete message
-                            if (reader.Unread.Length > 0)
-                            {
-                                throw new FormatException("Incomplete message");
-                            }
                         }
+
                     }
                 }
             }
@@ -137,6 +126,31 @@ namespace Microsoft.AspNetCore.Sockets.Client
                 // Make sure the send loop is terminated
                 _transportCts.Cancel();
             }
+        }
+
+        private IList<Message> ParsePayload(byte[] payload)
+        {
+            var reader = new BytesReader(payload);
+            var messageFormat = MessageParser.GetFormat(reader.Unread[0]);
+            reader.Advance(1);
+
+            _parser.Reset();
+            var messages = new List<Message>();
+            while (_parser.TryParseMessage(ref reader, messageFormat, out var message))
+            {
+                messages.Add(message);
+            }
+
+            // Since we pre-read the whole payload, we know that when this fails we have read everything.
+            // Once Pipelines natively support BytesReader, we could get into situations where the data for
+            // a message just isn't available yet.
+
+            // If there's still data, we hit an incomplete message
+            if (reader.Unread.Length > 0)
+            {
+                throw new FormatException("Incomplete message");
+            }
+            return messages;
         }
 
         private async Task SendMessages(Uri sendUrl, CancellationToken cancellationToken)
